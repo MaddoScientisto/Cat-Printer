@@ -1,6 +1,8 @@
 @echo off
 setlocal
 
+set "COMPOSE_MENU=false"
+
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
 
@@ -17,9 +19,9 @@ cd /d "%REPO_ROOT%" || exit /b 1
 
 docker compose version >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
-    docker compose %ENV_ARGS% -f docker-compose.android.yml up --build --abort-on-container-exit --exit-code-from android-build android-build
+    docker compose %ENV_ARGS% -f docker-compose.android.yml run --build --rm android-build
 ) else (
-    docker-compose %ENV_ARGS% -f docker-compose.android.yml up --build --abort-on-container-exit --exit-code-from android-build android-build
+    docker-compose %ENV_ARGS% -f docker-compose.android.yml run --build --rm android-build
 )
 
 exit /b %ERRORLEVEL%
