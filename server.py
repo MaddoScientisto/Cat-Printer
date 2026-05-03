@@ -356,10 +356,7 @@ def serve():
         except Exception:
             print('Exception on requesting Android Permissions. Continuing', file=sys.stderr)
             pass
-        from android.app import Activity
-        from android.content import Intent
-        print(Intent.getIntent().getType())
-    
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

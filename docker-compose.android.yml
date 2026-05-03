@@ -1,0 +1,38 @@
+services:
+  android-build:
+    build:
+      context: .
+      dockerfile: build-android/Dockerfile
+      args:
+        ANDROID_API: ${ANDROID_API:-35}
+        BUILD_TOOLS_VERSION: ${BUILD_TOOLS_VERSION:-35.0.0}
+        NDK_VERSION: ${NDK_VERSION:-27.2.12479018}
+        NDK_API: ${NDK_API:-23}
+        COMMANDLINE_TOOLS_VERSION: ${COMMANDLINE_TOOLS_VERSION:-11076708}
+    image: cat-printer-android-build:${ANDROID_API:-35}
+    working_dir: /workspace
+    environment:
+      ANDROIDAPI: ${ANDROID_API:-35}
+      NDKAPI: ${NDK_API:-23}
+      BUILD_MODE: ${BUILD_MODE:-debug}
+      CLEAN_BUILD: ${CLEAN_BUILD:-0}
+      P4A_ARCHS: ${P4A_ARCHS:-arm64-v8a,armeabi-v7a}
+      P4A_PACKAGE: ${P4A_PACKAGE:-io.github.naitlee.catprinter}
+      P4A_NAME: ${P4A_NAME:-Cat Printer}
+      P4A_PERMISSIONS: ${P4A_PERMISSIONS:-INTERNET,BLUETOOTH,BLUETOOTH_ADMIN,ACCESS_FINE_LOCATION,BLUETOOTH_SCAN,BLUETOOTH_CONNECT}
+      P4A_EXTRA_ARGS: ${P4A_EXTRA_ARGS:-}
+      RELEASE_KEYSTORE: ${RELEASE_KEYSTORE:-}
+      RELEASE_SIGNKEY: ${RELEASE_SIGNKEY:-}
+      RELEASE_KEYSTORE_PASSWORD: ${RELEASE_KEYSTORE_PASSWORD:-}
+      RELEASE_SIGNKEY_PASSWORD: ${RELEASE_SIGNKEY_PASSWORD:-}
+    volumes:
+      - .:/workspace
+      - p4a-cache:/root/.local/share/python-for-android
+      - gradle-cache:/root/.gradle
+      - pip-cache:/root/.cache/pip
+    command: ["/bin/bash", "/workspace/build-android/docker-build.sh"]
+
+volumes:
+  p4a-cache:
+  gradle-cache:
+  pip-cache:

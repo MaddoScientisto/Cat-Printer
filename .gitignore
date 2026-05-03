@@ -19,6 +19,9 @@ wasm/node_modules
 *.pyc
 # releases
 build-android/dist
+build-android/out
+build-android/.env
+build-android/keys
 *.apk
 *.apk.*
 cat-printer*.zip
@@ -40,6 +43,10 @@ pkg
 *.pkg.tar.zst
 # dev config
 config.json
+.env
+.idea/*
+!.idea/runConfigurations/
+!.idea/runConfigurations/*.xml
 # dev backup
 *.bak
 # test files

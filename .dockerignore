@@ -1,0 +1,15 @@
+.git
+.idea
+build-android/out
+build-android/.env
+build-android/keys
+build-android/dist
+build-android/__pycache__
+build-common/*.zip
+cat-printer*.zip
+*.apk
+*.apk.*
+__pycache__
+*.pyc
+wasm/node_modules
+
