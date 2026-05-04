@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -37,6 +39,26 @@ jobs:
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
+
+      - name: Resolve release tag
+        id: release_meta
+        run: |
+          git fetch --force --tags
+
+          if [[ "$GITHUB_REF_TYPE" == 'tag' ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            latest_version_tag="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+
+            if [[ -z "$latest_version_tag" ]]; then
+              echo "No v* tags were found. Manual release requires at least one version tag." >&2
+              exit 1
+            fi
+
+            release_tag="android-native-$latest_version_tag"
+          fi
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
       - name: Decode optional signing key
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
@@ -67,8 +89,11 @@ jobs:
           path: release-artifacts/cat-printer-native-release.apk
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_meta.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           files: release-artifacts/cat-printer-native-release.apk
           generate_release_notes: true
+          overwrite_files: true
