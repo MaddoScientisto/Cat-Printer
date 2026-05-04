@@ -78,7 +78,15 @@ jobs:
         run: ./gradlew assembleRelease
 
       - name: Verify release APK signature
-        run: apksigner verify --verbose build/native-app/outputs/apk/release/app-release.apk
+        run: |
+          apksigner_bin="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+
+          if [[ -z "$apksigner_bin" ]]; then
+            echo "Could not find apksigner under the Android SDK build-tools directory." >&2
+            exit 1
+          fi
+
+          "$apksigner_bin" verify --verbose build/native-app/outputs/apk/release/app-release.apk
 
       - name: Name release APK
         run: |
