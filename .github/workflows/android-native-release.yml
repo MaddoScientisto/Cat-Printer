@@ -77,6 +77,27 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease
 
+      - name: Resolve release APK path
+        id: release_apk
+        run: |
+          metadata_path="$(find build -path '*/outputs/apk/release/output-metadata.json' | head -n 1)"
+
+          if [[ -z "$metadata_path" ]]; then
+            echo "Could not find release output-metadata.json under the build directory." >&2
+            exit 1
+          fi
+
+          apk_file_name="$(python3 -c "import json, sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['elements'][0]['outputFile'])" "$metadata_path")"
+          apk_dir="$(dirname "$metadata_path")"
+          apk_path="$apk_dir/$apk_file_name"
+
+          if [[ ! -f "$apk_path" ]]; then
+            echo "Resolved release APK does not exist: $apk_path" >&2
+            exit 1
+          fi
+
+          echo "apk_path=$apk_path" >> "$GITHUB_OUTPUT"
+
       - name: Verify release APK signature
         run: |
           apksigner_bin="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
@@ -86,12 +107,12 @@ jobs:
             exit 1
           fi
 
-          "$apksigner_bin" verify --verbose build/native-app/outputs/apk/release/app-release.apk
+          "$apksigner_bin" verify --verbose "${{ steps.release_apk.outputs.apk_path }}"
 
       - name: Name release APK
         run: |
           mkdir -p ../release-artifacts
-          cp build/native-app/outputs/apk/release/app-release.apk ../release-artifacts/cat-printer-native-release.apk
+          cp "${{ steps.release_apk.outputs.apk_path }}" ../release-artifacts/cat-printer-native-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
