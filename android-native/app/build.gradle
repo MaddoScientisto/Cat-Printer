@@ -1,0 +1,60 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+layout.buildDirectory = rootProject.layout.buildDirectory.dir('native-app')
+
+android {
+    namespace 'soft.naitlee.catprinter.nativeapp'
+    compileSdk 35
+
+    def releaseStoreFile = System.getenv('CATPRINTER_KEYSTORE_FILE')
+    def releaseStorePassword = System.getenv('CATPRINTER_KEYSTORE_PASSWORD')
+    def releaseKeyAlias = System.getenv('CATPRINTER_KEY_ALIAS')
+    def releaseKeyPassword = System.getenv('CATPRINTER_KEY_PASSWORD')
+    def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    defaultConfig {
+        applicationId 'soft.naitlee.catprinter.nativeapp'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-native'
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
