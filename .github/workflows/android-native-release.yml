@@ -77,10 +77,13 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease
 
+      - name: Verify release APK signature
+        run: apksigner verify --verbose build/native-app/outputs/apk/release/app-release.apk
+
       - name: Name release APK
         run: |
           mkdir -p ../release-artifacts
-          cp build/native-app/outputs/apk/release/*.apk ../release-artifacts/cat-printer-native-release.apk
+          cp build/native-app/outputs/apk/release/app-release.apk ../release-artifacts/cat-printer-native-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
