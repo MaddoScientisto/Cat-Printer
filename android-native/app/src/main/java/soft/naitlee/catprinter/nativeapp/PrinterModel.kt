@@ -24,6 +24,7 @@ data class PrinterModel(
             PrinterModel("MX11"),
             PrinterModel("SC03h"),
             PrinterModel("MXTP"),
+            PrinterModel("X5"),
         )
 
         val fallback: PrinterModel = models.first { it.prefix == "_ZZ00" }

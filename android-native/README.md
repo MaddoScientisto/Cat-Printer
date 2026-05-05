@@ -4,7 +4,7 @@ This is a Kotlin Android frontend for Cat-Printer that does not embed Python, We
 
 ## What is included
 
-- BLE scan and connect for supported model prefixes: GB01, GB02, GB03, GT01, YT01, MX05, MX06, MX08, MX09, MX10, MX11, SC03h, MXTP.
+- BLE scan and connect for supported model prefixes: GB01, GB02, GB03, GT01, YT01, MX05, MX06, MX08, MX09, MX10, MX11, SC03h, MXTP, X5.
 - Native command framing, CRC8, flow-control notification handling, and bitmap line writes.
 - Native text printing via Android text rendering.
 - Image, text, and pattern print modes with a mode selector that defaults to Image.
