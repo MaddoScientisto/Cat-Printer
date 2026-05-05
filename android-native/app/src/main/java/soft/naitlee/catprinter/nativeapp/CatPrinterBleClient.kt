@@ -2,6 +2,7 @@ package soft.naitlee.catprinter.nativeapp
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -31,6 +32,12 @@ class CatPrinterBleClient(private val context: Context) {
     @Volatile private var writeLatch: CountDownLatch? = null
     @Volatile private var writeStatus: Int = BluetoothGatt.GATT_SUCCESS
     @Volatile private var mtuPayloadSize: Int = 20
+
+    fun rememberedPrinter(name: String, address: String): ScannedPrinter? {
+        val bluetoothAdapter = adapter ?: return null
+        if (!BluetoothAdapter.checkBluetoothAddress(address)) return null
+        return ScannedPrinter(bluetoothAdapter.getRemoteDevice(address), name, address)
+    }
 
     fun scan(timeoutMillis: Long, includeUnknown: Boolean, done: (Result<List<ScannedPrinter>>) -> Unit) {
         if (adapter == null) {

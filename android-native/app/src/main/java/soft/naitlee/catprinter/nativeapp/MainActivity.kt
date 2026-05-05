@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
@@ -58,12 +59,19 @@ class MainActivity : Activity() {
         val buttonText: Int,
     )
 
+    private data class PrinterListItem(
+        val printer: CatPrinterBleClient.ScannedPrinter,
+        val detected: Boolean,
+    )
+
     private val bleClient by lazy { CatPrinterBleClient(this) }
     private val settings by lazy { PrinterSettings(this) }
     private val worker = Executors.newSingleThreadExecutor()
     private val previewHandler = Handler(Looper.getMainLooper())
     private val previewGeneration = AtomicInteger(0)
     private val devices = mutableListOf<CatPrinterBleClient.ScannedPrinter>()
+    private val deviceItems = mutableListOf<PrinterListItem>()
+    private val lastScannedPrinters = mutableListOf<CatPrinterBleClient.ScannedPrinter>()
     private val palette by lazy { currentPalette() }
 
     private var selectedDevice: CatPrinterBleClient.ScannedPrinter? = null
@@ -75,15 +83,20 @@ class MainActivity : Activity() {
     private var baseRight = 0
     private var baseBottom = 0
     private var restoringSettings = false
+    private var scanning = false
+    private var connecting = false
 
     private lateinit var statusView: TextView
     private lateinit var deviceSpinner: Spinner
     private lateinit var progressBar: ProgressBar
+    private lateinit var scanButton: Button
+    private lateinit var connectButton: Button
+    private lateinit var scanButtonSpinner: ProgressBar
+    private lateinit var connectButtonSpinner: ProgressBar
     private lateinit var printKindSpinner: Spinner
     private lateinit var ditherSpinner: Spinner
     private lateinit var dryRunBox: CheckBox
     private lateinit var unknownBox: CheckBox
-    private lateinit var autoPrintSharedBox: CheckBox
     private lateinit var rotateBox: CheckBox
     private lateinit var flipHBox: CheckBox
     private lateinit var flipVBox: CheckBox
@@ -103,6 +116,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         configureSystemBars()
         setContentView(buildUi())
+        refreshPrinterList(emptyList(), settings.lastSelectedPrinterAddress)
         requestRuntimePermissions()
         handleIncomingIntent(intent)
         updateVisiblePrintSection()
@@ -181,12 +195,20 @@ class MainActivity : Activity() {
             settings.showUnknownDevices = unknownBox.isChecked
         }
         root.addView(unknownBox)
+        scanButton = button("Scan") { scan() }
+        connectButton = button("Connect") { connectSelected() }
+        scanButtonSpinner = smallSpinner()
+        connectButtonSpinner = smallSpinner()
         root.addView(row(
-            button("Scan") { scan() },
-            button("Connect") { connectSelected() },
+            buttonWithSpinner(scanButton, scanButtonSpinner),
+            buttonWithSpinner(connectButton, connectButtonSpinner),
         ))
 
-        deviceSpinner = spinner(arrayOf("No devices scanned")) { selectedDevice = devices.getOrNull(deviceSpinner.selectedItemPosition) }
+        deviceSpinner = spinner(arrayOf("No saved printers")) {
+            selectedDevice = deviceItems.getOrNull(deviceSpinner.selectedItemPosition)?.printer
+            selectedDevice?.let(settings::rememberSelectedPrinter)
+            updateConnectButtonState()
+        }
         root.addView(deviceSpinner, matchWrap())
 
         root.addView(sectionLabel("Print Type"))
@@ -257,9 +279,6 @@ class MainActivity : Activity() {
         root.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)).apply { topMargin = dp(12) })
 
         root.addView(sectionLabel("Options"))
-        autoPrintSharedBox = checkBox("Print shared images through last printer", settings.autoPrintSharedImages) {
-            settings.autoPrintSharedImages = autoPrintSharedBox.isChecked
-        }
         dryRunBox = checkBox("Dry run: send blank image data", settings.dryRun) {
             savePrintSettings()
             schedulePreviewUpdate()
@@ -276,7 +295,7 @@ class MainActivity : Activity() {
             savePrintSettings()
             schedulePreviewUpdate()
         }
-        listOf(autoPrintSharedBox, dryRunBox, rotateBox, flipHBox, flipVBox).forEach(root::addView)
+        listOf(dryRunBox, rotateBox, flipHBox, flipVBox).forEach(root::addView)
 
         root.addView(label("Dithering"))
         ditherSpinner = spinner(ThermalBitmap.ditherLabels) {
@@ -325,8 +344,12 @@ class MainActivity : Activity() {
 
     private fun scan() {
         if (!ensurePermissions()) return
+        scanning = true
+        updateScanButtonState()
         setBusy(true, "Scanning for printers...")
         bleClient.scan(4_000, unknownBox.isChecked) { result ->
+            scanning = false
+            updateScanButtonState()
             setBusy(false, result.fold(
                 onSuccess = { list -> "Found ${list.size} device(s)" },
                 onFailure = { error ->
@@ -336,11 +359,9 @@ class MainActivity : Activity() {
                 },
             ))
             result.onSuccess { list ->
-                devices.clear()
-                devices.addAll(list)
-                val labels = if (list.isEmpty()) listOf("No devices found") else list.map { "${it.name}  ${it.address}" }
-                deviceSpinner.adapter = themedAdapter(labels)
-                selectedDevice = devices.firstOrNull()
+                lastScannedPrinters.clear()
+                lastScannedPrinters.addAll(list)
+                refreshPrinterList(list, settings.lastSelectedPrinterAddress)
                 if (list.isEmpty()) AppLog.add("Scan finished with no devices")
             }
         }
@@ -352,12 +373,15 @@ class MainActivity : Activity() {
             status("Scan and select a printer first")
             return
         }
+        connecting = true
+        updateConnectButtonState()
         setBusy(true, "Connecting to ${target.name}...")
         bleClient.connect(target.device) { result ->
+            connecting = false
             setBusy(false, result.fold(
                 onSuccess = {
                     connectedModel = PrinterModel.fromName(target.name)
-                    settings.rememberPrinter(target)
+                    settings.rememberSelectedPrinter(target)
                     schedulePreviewUpdate(force = true)
                     AppLog.add("Connected to ${target.name} ${target.address}")
                     "Connected to ${target.name}"
@@ -368,6 +392,7 @@ class MainActivity : Activity() {
                     message
                 },
             ))
+            updateConnectButtonState()
         }
     }
 
@@ -380,12 +405,16 @@ class MainActivity : Activity() {
                 return
             }
             showToast("Connecting to ${target.name} before printing")
+            connecting = true
+            updateConnectButtonState()
             setBusy(true, "Connecting to ${target.name}...")
             bleClient.connect(target.device) { result ->
+                connecting = false
+                updateConnectButtonState()
                 result.fold(
                     onSuccess = {
                         connectedModel = PrinterModel.fromName(target.name)
-                        settings.rememberPrinter(target)
+                        settings.rememberSelectedPrinter(target)
                         setBusy(false, "Connected to ${target.name}")
                         showToast("Connected. Printing $label...")
                         startPrintJob(label)
@@ -460,12 +489,18 @@ class MainActivity : Activity() {
             bleClient.print(commands) { message -> runOnUiThread { statusView.text = message } }
             runOnUiThread {
                 val message = "Finished printing $label (${bitmap.height} lines)"
+                selectedDevice?.let { printer ->
+                    settings.rememberSuccessfulPrinter(printer)
+                    refreshPrinterList(lastScannedPrinters, printer.address)
+                }
                 AppLog.add(message)
                 setBusy(false, message)
+                updateConnectButtonState()
             }
         } catch (error: Throwable) {
             runOnUiThread {
                 showError(error.message ?: "Print failed")
+                updateConnectButtonState()
             }
         }
     }
@@ -535,6 +570,87 @@ class MainActivity : Activity() {
         section.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
+    private fun refreshPrinterList(scannedPrinters: List<CatPrinterBleClient.ScannedPrinter>, preferredAddress: String?) {
+        val merged = linkedMapOf<String, PrinterListItem>()
+
+        fun addPrinter(printer: CatPrinterBleClient.ScannedPrinter, detected: Boolean) {
+            val key = printer.address.uppercase()
+            val existing = merged[key]
+            merged[key] = PrinterListItem(printer, detected || existing?.detected == true)
+        }
+
+        settings.rememberedPrinters.forEach { remembered ->
+            bleClient.rememberedPrinter(remembered.name, remembered.address)?.let { addPrinter(it, detected = false) }
+        }
+        settings.lastSelectedPrinter?.let { remembered ->
+            bleClient.rememberedPrinter(remembered.name, remembered.address)?.let { addPrinter(it, detected = false) }
+        }
+        scannedPrinters.forEach { addPrinter(it, detected = true) }
+
+        deviceItems.clear()
+        deviceItems.addAll(merged.values)
+        devices.clear()
+        devices.addAll(deviceItems.map { it.printer })
+
+        val labels = if (deviceItems.isEmpty()) {
+            listOf("No saved printers")
+        } else {
+            deviceItems.map { printerLabel(it.printer) }
+        }
+        deviceSpinner.adapter = printerAdapter(labels)
+
+        if (deviceItems.isEmpty()) {
+            selectedDevice = null
+        } else {
+            val selectedIndex = deviceItems.indexOfFirst { item ->
+                preferredAddress != null && item.printer.address.equals(preferredAddress, ignoreCase = true)
+            }.takeIf { it >= 0 } ?: 0
+            selectedDevice = deviceItems[selectedIndex].printer
+            deviceSpinner.setSelection(selectedIndex, false)
+        }
+        updateConnectButtonState()
+    }
+
+    private fun printerLabel(printer: CatPrinterBleClient.ScannedPrinter): String = "${printer.name}  ${printer.address}"
+
+    private fun updateScanButtonState() {
+        if (!::scanButton.isInitialized) return
+        scanButton.text = if (scanning) "Scanning" else "Scan"
+        scanButton.isEnabled = !scanning
+        scanButtonSpinner.visibility = if (scanning) View.VISIBLE else View.GONE
+    }
+
+    private fun updateConnectButtonState() {
+        if (!::connectButton.isInitialized) return
+        val connected = bleClient.isConnected()
+        connectButton.text = when {
+            connecting -> "Connecting"
+            connected -> "Connected"
+            else -> "Connect"
+        }
+        connectButton.isEnabled = !connecting && selectedDevice != null
+        connectButtonSpinner.visibility = if (connecting) View.VISIBLE else View.GONE
+        setConnectButtonDot(if (connected) connectedColor() else disconnectedColor())
+    }
+
+    private fun setConnectButtonDot(color: Int) {
+        val dot = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+            setSize(dp(10), dp(10))
+        }
+        connectButton.compoundDrawablePadding = dp(8)
+        connectButton.setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
+    }
+
+    private fun detectedPrinterColor(): Int = if (isNightMode()) Color.rgb(101, 224, 150) else Color.rgb(24, 137, 73)
+
+    private fun connectedColor(): Int = if (isNightMode()) Color.rgb(90, 224, 139) else Color.rgb(22, 150, 73)
+
+    private fun disconnectedColor(): Int = if (isNightMode()) Color.rgb(255, 105, 105) else Color.rgb(204, 50, 50)
+
+    private fun isNightMode(): Boolean = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
     private fun selectedPrintKind(): PrintKind = PrintKind.entries.getOrElse(printKindSpinner.selectedItemPosition) { PrintKind.IMAGE }
 
     private fun selectedDitherMode(): DitherMode = ThermalBitmap.ditherModeFromLabel(ditherSpinner.selectedItem?.toString().orEmpty())
@@ -566,8 +682,6 @@ class MainActivity : Activity() {
         printKindSpinner.setSelection(PrintKind.IMAGE.ordinal)
         schedulePreviewUpdate(force = true)
         AppLog.add("Received image intent: $uri")
-        val printNow = intent.getBooleanExtra(PrinterSettings.EXTRA_PRINT_NOW, false) || settings.autoPrintSharedImages
-        if (printNow) connectLastPrinterAndPrint()
     }
 
     private fun incomingImageUri(intent: Intent): Uri? {
@@ -580,47 +694,6 @@ class MainActivity : Activity() {
             clipData.getItemAt(index).uri?.let { return it }
         }
         return null
-    }
-
-    private fun connectLastPrinterAndPrint() {
-        if (!ensurePermissions()) return
-        val lastAddress = settings.lastPrinterAddress
-        if (lastAddress.isNullOrBlank()) {
-            status("No last printer saved")
-            AppLog.add("Cannot auto-print shared image: no last printer saved")
-            return
-        }
-        setBusy(true, "Finding last printer...")
-        bleClient.scan(6_000, true) { result ->
-            result.fold(
-                onSuccess = { list ->
-                    val target = list.firstOrNull { it.address.equals(lastAddress, ignoreCase = true) }
-                    if (target == null) {
-                        setBusy(false, "Last printer was not found")
-                        AppLog.add("Auto-print scan could not find $lastAddress")
-                        return@scan
-                    }
-                    selectedDevice = target
-                    devices.clear()
-                    devices.addAll(list)
-                    deviceSpinner.adapter = themedAdapter(list.map { "${it.name}  ${it.address}" })
-                    setBusy(true, "Connecting to ${target.name}...")
-                    bleClient.connect(target.device) { connectResult ->
-                        connectResult.fold(
-                            onSuccess = {
-                                connectedModel = PrinterModel.fromName(target.name)
-                                settings.rememberPrinter(target)
-                                setBusy(false, "Connected to ${target.name}")
-                                showToast("Connected. Printing shared image...")
-                                printCurrentSelection()
-                            },
-                            onFailure = { error -> showError(error.message ?: "Connection failed") },
-                        )
-                    }
-                },
-                onFailure = { error -> showError(error.message ?: "Scan failed") },
-            )
-        }
     }
 
     private fun showLog() {
@@ -770,6 +843,19 @@ class MainActivity : Activity() {
         setOnClickListener { onClick() }
     }
 
+    private fun smallSpinner(): ProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleSmall).apply {
+        isIndeterminate = true
+        visibility = View.GONE
+        if (Build.VERSION.SDK_INT >= 21) indeterminateTintList = ColorStateList.valueOf(palette.accent)
+    }
+
+    private fun buttonWithSpinner(button: Button, spinner: ProgressBar): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(spinner, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(6) })
+    }
+
     private fun checkBox(text: String, checked: Boolean, onChange: () -> Unit): CheckBox = CheckBox(this).apply {
         this.text = text
         isChecked = checked
@@ -791,9 +877,22 @@ class MainActivity : Activity() {
         override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View = super.getDropDownView(position, convertView, parent).also(::themeSpinnerText)
     }
 
+    private fun printerAdapter(values: List<String>): ArrayAdapter<String> = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, values) {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = super.getView(position, convertView, parent).also { themePrinterText(it, position) }
+        override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View = super.getDropDownView(position, convertView, parent).also { themePrinterText(it, position) }
+    }
+
     private fun themeSpinnerText(view: View) {
         (view as? TextView)?.apply {
             setTextColor(palette.text)
+            setBackgroundColor(palette.surface)
+        }
+    }
+
+    private fun themePrinterText(view: View, position: Int) {
+        (view as? TextView)?.apply {
+            val detected = deviceItems.getOrNull(position)?.detected == true
+            setTextColor(if (detected) detectedPrinterColor() else palette.text)
             setBackgroundColor(palette.surface)
         }
     }

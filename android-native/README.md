@@ -12,7 +12,7 @@ This is a Kotlin Android frontend for Cat-Printer that does not embed Python, We
 - Native image picking, scaling to printer paper width, brightness, rotation, and flip controls.
 - Dithering choices: No dithering, Floyd-Steinberg, and Bayer 4x4 with adjustable Bayer range.
 - Automatic light/dark colors based on the Android system theme.
-- External image sharing/view intents, with optional immediate print through the last connected printer.
+- External image sharing/view intents that open in Image mode for preview and manual printing.
 - Long-press the preview to compare against the original source image.
 - In-app error log for troubleshooting scan, connect, intent, and print failures.
 - Dry-run mode, energy control, and the existing MX05/MX06/MX08/MX09/MX10 feed workaround.
